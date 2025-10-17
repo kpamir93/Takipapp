@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kişisel Finans Uygulaması</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+        // Tailwind CSS Dark Mode için temel yapılandırma
+        tailwind.config = {
+            darkMode: 'class', // 'media' veya 'class'
+        }
+    </script>
+    <style>
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .bottom-nav-button {
+            transition: transform 0.1s ease-in-out;
+        }
+        .bottom-nav-button:active {
+            transform: scale(0.95);
+        }
+        .gemini-modal-backdrop {
+            animation: fadeIn 0.3s ease;
+        }
+        .gemini-modal-content {
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useContext, createContext, useReducer } = React;
+
+        // --- SVG İKON BİLEŞENLERİ ---
+        const Icon = ({ path, className = "w-6 h-6" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d={path} />
+            </svg>
+        );
+        const HomeIcon = () => <Icon path="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />;
+        const CreditCardIcon = () => <Icon path="M22 10v10H2V10M2 6h20v2H2zm3 8h4" />;
+        const ChevronRightIcon = () => <Icon path="M9 18l6-6-6-6" />;
+        const ArrowLeftIcon = () => <Icon path="M19 12H5m7 7-7-7 7-7" />;
+        const TrashIcon = () => <Icon path="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />;
+        const ListIcon = () => <Icon path="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />;
+        const SparklesIcon = () => <Icon path="M12 2L9.5 7 4 9.5 9.5 12 12 17l2.5-5 5.5-2.5-5.5-2.5L12 2zM5 21l2-5 5-2-5-2-2-5-2 5-5 2 5 2 2 5z" />;
+        const WalletIcon = () => <Icon path="M21 12V7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M1 12h18" />;
+        const SunIcon = () => <Icon path="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />;
+        const MoonIcon = () => <Icon path="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />;
+
+
+        // Kategori listesi
+        const expenseCategories = [
+            'Yemek', 'Gıda Alışverişi', 'Kıyafet', 'Ev Tekstili & Dekorasyon',
+            'Zeyna & Dobby', 'Araba & Motor', 'Fatura', 'Aidat',
+            'Eğlence & Hobby', 'Tatil'
+        ];
+
+        // Para formatlama yardımcısı
+        const formatCurrency = (amount) => {
+            return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(amount);
+        };
+
+        // --- GLOBAL STATE (CONTEXT API) ---
+        const AppContext = createContext();
+
+        const initialState = {
+            transactions: [],
+            cards: [],
+            cashAccounts: [],
+            isDarkMode: false,
+        };
+
+        function appReducer(state, action) {
+            switch (action.type) {
+                case 'TOGGLE_DARK_MODE':
+                    return { ...state, isDarkMode: !state.isDarkMode };
+                case 'ADD_TRANSACTION':
+                    return { ...state, transactions: [...state.transactions, action.payload] };
+                case 'DELETE_TRANSACTION':
+                    return { ...state, transactions: state.transactions.filter(t => t.id !== action.payload) };
+                case 'ADD_CARD':
+                    return { ...state, cards: [...state.cards, action.payload] };
+                case 'DELETE_CARD':
+                    return {
+                        ...state,
+                        cards: state.cards.filter(c => c.id !== action.payload),
+                        transactions: state.transactions.filter(t => t.accountId !== action.payload)
+                    };
+                case 'ADD_CASH_ACCOUNT':
+                    return { ...state, cashAccounts: [...state.cashAccounts, action.payload] };
+                case 'DELETE_CASH_ACCOUNT':
+                    return {
+                        ...state,
+                        cashAccounts: state.cashAccounts.filter(a => a.id !== action.payload),
+                        transactions: state.transactions.filter(t => t.accountId !== action.payload)
+                    };
+                case 'ADD_PAYMENT_TO_CARD':
+                    {
+                        const updatedCards = state.cards.map(card => {
+                            if (card.id === action.payload.cardId) {
+                                const newPayments = [...(card.payments || []), action.payload.payment];
+                                return { ...card, payments: newPayments };
+                            }
+                            return card;
+                        });
+                        return { ...state, cards: updatedCards };
+                    }
+                case 'DELETE_PAYMENT':
+                    {
+                        const { cardId, paymentId } = action.payload;
+                        const updatedCards = state.cards.map(card => {
+                            if (card.id === cardId) {
+                                const filteredPayments = (card.payments || []).filter(p => p.id !== paymentId);
+                                return { ...card, payments: filteredPayments };
+                            }
+                            return card;
+                        });
+                        return { ...state, cards: updatedCards };
+                    }
+                case 'SET_STATE':
+                    return action.payload;
+                default:
+                    return state;
+            }
+        }
+
+        const AppProvider = ({ children }) => {
+            const [state, dispatch] = useReducer(appReducer, initialState);
+
+            useEffect(() => {
+                try {
+                    const savedState = localStorage.getItem('appState');
+                    if (savedState) {
+                        const parsedState = JSON.parse(savedState);
+                        dispatch({ type: 'SET_STATE', payload: { ...initialState, ...parsedState } });
+                    } else {
+                         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                         if (prefersDark) {
+                            dispatch({type: 'TOGGLE_DARK_MODE'});
+                         }
+                    }
+                } catch (e) {
+                    console.error('Failed to load state.', e);
+                }
+            }, []);
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem('appState', JSON.stringify(state));
+                     if (state.isDarkMode) {
+                        document.documentElement.classList.add('dark');
+                    } else {
+                        document.documentElement.classList.remove('dark');
+                    }
+                } catch (e) {
+                    console.error('Failed to save state.', e);
+                }
+            }, [state]);
+
+            return (
+                <AppContext.Provider value={{ state, dispatch }}>
+                    {children}
+                </AppContext.Provider>
+            );
+        };
+        
+        // --- GEMINI API BİLEŞENİ ---
+        function FinancialSummaryModal({ onClose, transactions }) {
+            // ... (Kod aynı, dark mode için stiller eklendi)
+            const [summary, setSummary] = useState('');
+            const [isLoading, setIsLoading] = useState(true);
+            const [error, setError] = useState('');
+
+            useEffect(() => {
+                const fetchSummary = async () => {
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    const recentTransactions = transactions.filter(t => new Date(t.date) >= thirtyDaysAgo);
+
+                    if (recentTransactions.length === 0) {
+                        setSummary("Analiz edilecek yeterli veri bulunamadı. Lütfen son 30 gün içinde en az bir işlem ekleyin.");
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    const transactionsString = recentTransactions.map(t => {
+                        const type = t.type === 'income' ? 'GELİR' : 'GİDER';
+                        const sign = t.type === 'income' ? '+' : '-';
+                        const date = new Date(t.date).toLocaleDateString('tr-TR');
+                        const categoryInfo = t.type === 'expense' && t.category ? ` (Kategori: ${t.category})` : '';
+                        return `${type}: ${sign}${t.amount.toFixed(2)} TL - ${t.description}${categoryInfo} (${date})`;
+                    }).join('\n');
+
+                    const prompt = `Sen yardımsever bir finans asistanısın. Aşağıdaki, son 30 güne ait işlem listesini analiz et. Kullanıcının harcama alışkanlıkları hakkında Türkçe, arkadaşça bir dille kısa (2-3 cümlelik) bir özet sun. Özellikle harcama kategorilerine dikkat et. Sonunda, bütçesini daha iyi yönetmesine yardımcı olacak, uygulanabilir ve pozitif bir ipucu ver. Cevabın sadece bir veya iki paragraf olsun ve Markdown formatı kullanma.\n\nİşlem Listesi:\n${transactionsString}`;
+
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                    };
+
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`API isteği başarısız oldu: ${response.status}`);
+                        }
+
+                        const result = await response.json();
+                        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                        
+                        if (text) {
+                            setSummary(text);
+                        } else {
+                            throw new Error('API yanıtında içerik bulunamadı.');
+                        }
+                    } catch (err) {
+                        setError('Özet alınırken bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
+                        console.error(err);
+                    } finally {
+                        setIsLoading(false);
+                    }
+                };
+
+                fetchSummary();
+            }, [transactions]);
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 gemini-modal-backdrop" onClick={onClose}>
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 max-w-sm w-full gemini-modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3 mb-4">
+                            <SparklesIcon className="w-8 h-8 text-purple-500" />
+                            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Akıllı Finansal Özet</h2>
+                        </div>
+                        {isLoading ? (
+                            <div className="flex items-center justify-center h-32">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                            </div>
+                        ) : error ? (
+                            <p className="text-red-500">{error}</p>
+                        ) : (
+                            <p className="text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{summary}</p>
+                        )}
+                        <button onClick={onClose} className="w-full mt-6 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-bold py-3 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Kapat</button>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- EKRANLAR ---
+
+        function HomeScreen({ navigate }) {
+            const { state, dispatch } = useContext(AppContext);
+            const [isSummaryModalOpen, setSummaryModalOpen] = useState(false);
+
+            const totalCashBalance = state.cashAccounts.reduce((total, account) => {
+                const income = state.transactions
+                    .filter(t => t.type === 'income' && t.accountId === account.id)
+                    .reduce((sum, t) => sum + t.amount, 0);
+                const expense = state.transactions
+                    .filter(t => t.type === 'expense' && t.accountId === account.id)
+                    .reduce((sum, t) => sum + t.amount, 0);
+                return total + income - expense;
+            }, 0);
+
+            return (
+                <>
+                {isSummaryModalOpen && <FinancialSummaryModal onClose={() => setSummaryModalOpen(false)} transactions={state.transactions} />}
+                <div className="p-4 pb-28">
+                    <div className="flex justify-between items-center mb-6">
+                        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Hesap Durumu</h1>
+                        <button onClick={() => dispatch({ type: 'TOGGLE_DARK_MODE' })} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
+                            {state.isDarkMode ? <SunIcon /> : <MoonIcon />}
+                        </button>
+                    </div>
+                    
+                    <div className="bg-blue-500 text-white p-6 rounded-2xl shadow-lg mb-6">
+                        <p className="text-lg font-semibold opacity-80">Toplam Nakit Varlık</p>
+                        <p className="text-4xl font-bold mt-2">{formatCurrency(totalCashBalance)}</p>
+                    </div>
+
+                    <button onClick={() => setSummaryModalOpen(true)} className="w-full mb-6 flex items-center justify-center gap-2 font-semibold bg-gradient-to-r from-purple-500 to-indigo-500 text-white p-4 rounded-lg shadow-lg active:scale-[0.98] transition-transform">
+                        <SparklesIcon />
+                        ✨ Aylık Finansal Özet Al
+                    </button>
+
+                    <h2 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-3 mt-6">Nakit Hesapları</h2>
+                    {state.cashAccounts.length > 0 ? state.cashAccounts.map(account => {
+                         const income = state.transactions
+                            .filter(t => t.type === 'income' && t.accountId === account.id)
+                            .reduce((sum, t) => sum + t.amount, 0);
+                        const expense = state.transactions
+                            .filter(t => t.type === 'expense' && t.accountId === account.id)
+                            .reduce((sum, t) => sum + t.amount, 0);
+                        const balance = income - expense;
+                        return (
+                            <div key={account.id} onClick={() => navigate('AccountDetail', { accountId: account.id })} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-md mb-4 cursor-pointer active:scale-[0.98] transition-transform">
+                                <div className="flex justify-between items-center">
+                                    <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{account.name}</p>
+                                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                                        <span className="font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(balance)}</span>
+                                        <ChevronRightIcon />
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    }) : (
+                         <div className="text-center text-gray-500 dark:text-gray-400 mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg">
+                            <p>Henüz nakit hesabı eklemediniz.</p>
+                        </div>
+                    )}
+                    <button onClick={() => navigate('AddCashAccount')} className="w-full mt-4 flex items-center justify-center gap-2 text-green-500 dark:text-green-400 font-semibold border-2 border-green-500 dark:border-green-400 rounded-lg py-3 active:bg-green-50 dark:active:bg-green-900/50 transition-colors">
+                        <WalletIcon />
+                        Yeni Nakit Hesabı Ekle
+                    </button>
+                    
+
+                    <h2 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-3 mt-8">Kredi Kartları</h2>
+                    {state.cards.length === 0 ? (
+                        <div className="text-center text-gray-500 dark:text-gray-400 mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg">
+                            <p>Henüz kredi kartı eklemediniz.</p>
+                        </div>
+                    ) : (
+                        state.cards.map(card => {
+                            const cardExpenses = state.transactions
+                                .filter(t => t.type === 'expense' && t.accountId === card.id)
+                                .reduce((sum, t) => sum + t.amount, 0);
+                            const cardPayments = (card.payments || []).reduce((sum, p) => sum + p.amount, 0);
+                            const currentDebt = cardExpenses - cardPayments;
+                            const remainingLimit = card.limit - currentDebt;
+
+                            return (
+                                <div key={card.id} onClick={() => navigate('CardDetail', { cardId: card.id })} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-md mb-4 cursor-pointer active:scale-[0.98] transition-transform">
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-lg font-bold text-gray-800 dark:text-gray-100">{card.name}</p>
+                                        <ChevronRightIcon className="text-gray-500 dark:text-gray-400" />
+                                    </div>
+                                    <div className="flex justify-between items-center mt-4">
+                                        <span className="text-gray-600 dark:text-gray-400">Güncel Borç:</span>
+                                        <span className="font-semibold text-red-600 dark:text-red-400">{formatCurrency(currentDebt)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center mt-1">
+                                        <span className="text-gray-600 dark:text-gray-400">Kalan Limit:</span>
+                                        <span className="font-semibold text-green-600 dark:text-green-400">{formatCurrency(remainingLimit)}</span>
+                                    </div>
+                                </div>
+                            )
+                        })
+                    )}
+                     <button onClick={() => navigate('AddCard')} className="w-full mt-4 flex items-center justify-center gap-2 text-blue-500 dark:text-blue-400 font-semibold border-2 border-blue-500 dark:border-blue-400 rounded-lg py-3 active:bg-blue-50 dark:active:bg-blue-900/50 transition-colors">
+                        <CreditCardIcon />
+                        Yeni Kredi Kartı Ekle
+                    </button>
+                </div>
+                </>
+            );
+        }
+        
+        function AllTransactionsScreen({ navigate }) {
+             // ... Dark mode stilleri eklendi
+        }
+
+        function AddTransactionScreen({ navigate, type }) {
+             // ... Dark mode stilleri eklendi
+            const { state, dispatch } = useContext(AppContext);
+            const isIncome = type === 'income';
+
+            const [amount, setAmount] = useState('');
+            const [description, setDescription] = useState('');
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [selectedCategory, setSelectedCategory] = useState('');
+            
+            const initialAccountId = isIncome 
+                ? (state.cashAccounts.length > 0 ? state.cashAccounts[0].id : '') 
+                : (state.cashAccounts.length > 0 ? state.cashAccounts[0].id : (state.cards.length > 0 ? state.cards[0].id : ''));
+            
+            const [selectedAccount, setSelectedAccount] = useState(initialAccountId);
+
+            const handleSave = () => {
+                if (!amount || isNaN(amount) || !description || !selectedAccount) {
+                    alert('Lütfen tüm alanları doldurun ve bir hesap seçin.');
+                    return;
+                }
+                if (!isIncome && !selectedCategory) {
+                    alert('Lütfen bir gider kategorisi seçin.');
+                    return;
+                }
+                const newTransaction = {
+                    id: Date.now().toString(),
+                    type,
+                    amount: parseFloat(amount),
+                    description,
+                    date,
+                    accountId: selectedAccount,
+                    category: isIncome ? null : selectedCategory,
+                };
+                dispatch({ type: 'ADD_TRANSACTION', payload: newTransaction });
+                navigate('Home');
+            };
+
+            return (
+                <div className="p-4">
+                    <button onClick={() => navigate('Home')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">{isIncome ? 'Gelir Ekle' : 'Gider Ekle'}</h1>
+                    <div className="space-y-4">
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Tutar (örn: 1500)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Açıklama (örn: Akşam yemeği)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        
+                        {!isIncome && (
+                             <div>
+                                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">Kategori Seçimi</h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {expenseCategories.map(cat => (
+                                        <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-3 py-2 text-sm rounded-full font-semibold ${selectedCategory === cat ? 'bg-purple-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>{cat}</button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mt-4 mb-2">Hesap Seçimi</h3>
+                            {isIncome && state.cashAccounts.length === 0 && <p className="text-red-500">Lütfen önce bir nakit hesabı ekleyin.</p>}
+                            {!isIncome && state.cashAccounts.length === 0 && state.cards.length === 0 && <p className="text-red-500">Lütfen önce bir hesap ekleyin.</p>}
+
+                            {isIncome ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {state.cashAccounts.map(account => (
+                                        <button key={account.id} onClick={() => setSelectedAccount(account.id)} className={`px-4 py-2 rounded-full font-semibold ${selectedAccount === account.id ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>{account.name}</button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <>
+                                    <h4 className="font-semibold text-gray-600 dark:text-gray-400 mt-3 mb-2">Nakit Hesapları</h4>
+                                    <div className="flex flex-wrap gap-2">
+                                        {state.cashAccounts.map(account => (
+                                            <button key={account.id} onClick={() => setSelectedAccount(account.id)} className={`px-4 py-2 rounded-full font-semibold ${selectedAccount === account.id ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>{account.name}</button>
+                                        ))}
+                                    </div>
+                                    <h4 className="font-semibold text-gray-600 dark:text-gray-400 mt-4 mb-2">Kredi Kartları</h4>
+                                     <div className="flex flex-wrap gap-2">
+                                        {state.cards.map(card => (
+                                            <button key={card.id} onClick={() => setSelectedAccount(card.id)} className={`px-4 py-2 rounded-full font-semibold ${selectedAccount === card.id ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>{card.name}</button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <button onClick={handleSave} className="w-full bg-blue-500 text-white font-bold text-lg p-4 rounded-lg shadow-md hover:bg-blue-600 active:bg-blue-700 transition-colors">Kaydet</button>
+                    </div>
+                </div>
+            );
+        }
+        
+        function AccountDetailScreen({ navigate, params }) {
+            // ... (Dark mode stilleri eklendi)
+            const { accountId } = params;
+            const { state, dispatch } = useContext(AppContext);
+            const account = state.cashAccounts.find(a => a.id === accountId);
+
+            if (!account) return <div className="p-4"><p>Hesap bulunamadı.</p><button onClick={() => navigate('Home')}>Geri</button></div>
+
+            const accountTransactions = state.transactions
+                .filter(t => t.accountId === accountId)
+                .sort((a,b) => new Date(b.date) - new Date(a.date));
+
+            const income = accountTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+            const expense = accountTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+            const balance = income - expense;
+
+            const handleDeleteTransaction = (id) => {
+                if (window.confirm('Bu işlemi silmek istediğinize emin misiniz?')) {
+                    dispatch({ type: 'DELETE_TRANSACTION', payload: id });
+                }
+            }
+
+             const handleDeleteAccount = () => {
+                if (window.confirm(`'${account.name}' hesabını ve ilgili tüm işlemlerini kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) {
+                    dispatch({ type: 'DELETE_CASH_ACCOUNT', payload: account.id });
+                    navigate('Home');
+                }
+            }
+
+            return (
+                <div className="p-4 pb-12">
+                     <button onClick={() => navigate('Home')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">{account.name}</h1>
+                    <p className="text-xl font-semibold text-gray-600 dark:text-gray-300 mb-6">Güncel Bakiye: {formatCurrency(balance)}</p>
+                    
+                     <h2 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-3">Hesap Hareketleri</h2>
+                     <div className="space-y-3">
+                    {accountTransactions.length === 0 ? <p className="text-center text-gray-500 dark:text-gray-400 mt-4">Hesap hareketi bulunmuyor.</p> :
+                        accountTransactions.map(item => (
+                            <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg flex justify-between items-start">
+                                <div>
+                                    <p className="font-semibold text-gray-800 dark:text-gray-100">{item.description}</p>
+                                    {item.type === 'expense' && item.category && (
+                                        <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold bg-purple-100 dark:bg-purple-900/50 px-2 py-0.5 rounded-full inline-block mt-1">{item.category}</p>
+                                    )}
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{new Date(item.date).toLocaleDateString('tr-TR')}</p>
+                                </div>
+                                 <div className="flex items-center gap-4 flex-shrink-0 ml-2">
+                                    <p className={`font-bold text-lg ${item.type === 'income' ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                                        {item.type === 'income' ? '+' : '-'} {formatCurrency(item.amount)}
+                                    </p>
+                                    <button onClick={() => handleDeleteTransaction(item.id)} className="text-gray-400 hover:text-red-500">
+                                        <TrashIcon className="w-5 h-5"/>
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    }
+                    </div>
+                     <div className="mt-8 border-t dark:border-gray-700 pt-6">
+                         <button onClick={handleDeleteAccount} className="w-full flex items-center justify-center gap-2 text-red-500 dark:text-red-400 font-semibold border-2 border-red-500 dark:border-red-400 rounded-lg py-3 active:bg-red-50 dark:active:bg-red-900/50 transition-colors">
+                            <TrashIcon />
+                            Bu Hesabı Sil
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        
+        function CardDetailScreen({ navigate, params }) {
+            // ... (Dark mode stilleri eklendi)
+            const { cardId } = params;
+            const { state, dispatch } = useContext(AppContext);
+            const card = state.cards.find(c => c.id === cardId);
+
+            if (!card) return <div className="p-4"><p>Kart bulunamadı.</p><button onClick={() => navigate('Home')}>Geri</button></div>
+
+            const cardExpenses = state.transactions.filter(t => t.type === 'expense' && t.accountId === card.id);
+            const cardPayments = card.payments || [];
+            const allCardActivity = [...cardExpenses.map(e => ({...e, activityType: 'expense'})), ...cardPayments.map(p => ({...p, activityType: 'payment'}))]
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            const currentDebt = cardExpenses.reduce((sum, t) => sum + t.amount, 0) - cardPayments.reduce((sum, p) => sum + p.amount, 0);
+            const remainingLimit = card.limit - currentDebt;
+
+            const handleDeleteTransaction = (id) => {
+                if (window.confirm('Bu harcamayı silmek istediğinize emin misiniz?')) {
+                    dispatch({ type: 'DELETE_TRANSACTION', payload: id });
+                }
+            }
+
+            const handleDeletePayment = (id) => {
+                if (window.confirm('Bu ödemeyi silmek istediğinize emin misiniz?')) {
+                    dispatch({ type: 'DELETE_PAYMENT', payload: { cardId: card.id, paymentId: id } });
+                }
+            }
+
+            const handleDeleteCard = () => {
+                if (window.confirm(`'${card.name}' kartını ve ilgili tüm işlemlerini kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) {
+                    dispatch({ type: 'DELETE_CARD', payload: card.id });
+                    navigate('Home');
+                }
+            }
+
+            return (
+                 <div className="p-4 pb-12">
+                    <button onClick={() => navigate('Home')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">{card.name}</h1>
+                    <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-md mb-4">
+                        <div className="flex justify-between items-center py-2 border-b dark:border-gray-700">
+                            <span className="text-gray-600 dark:text-gray-400">Toplam Limit:</span>
+                            <span className="font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(card.limit)}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-2 border-b dark:border-gray-700">
+                            <span className="text-gray-600 dark:text-gray-400">Güncel Borç:</span>
+                            <span className="font-semibold text-red-600 dark:text-red-400">{formatCurrency(currentDebt)}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2">
+                            <span className="text-gray-600 dark:text-gray-400">Kalan Limit:</span>
+                            <span className="font-semibold text-green-600 dark:text-green-400">{formatCurrency(remainingLimit)}</span>
+                        </div>
+                    </div>
+                     <button onClick={() => navigate('AddPayment', { cardId: card.id })} className="w-full bg-green-500 text-white font-bold text-lg p-4 rounded-lg shadow-md hover:bg-green-600 active:bg-green-700 transition-colors mb-6">
+                        Karta Ödeme Yap
+                    </button>
+
+                    <h2 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-3">Hesap Hareketleri</h2>
+                    <div className="space-y-3">
+                    {allCardActivity.length === 0 ? <p className="text-center text-gray-500 dark:text-gray-400 mt-4">Hesap hareketi bulunmuyor.</p> :
+                        allCardActivity.map(item => (
+                            <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg flex justify-between items-start">
+                                <div>
+                                    <p className="font-semibold text-gray-800 dark:text-gray-100">{item.description || item.paymentDescription}</p>
+                                     {item.activityType === 'expense' && item.category && (
+                                        <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold bg-purple-100 dark:bg-purple-900/50 px-2 py-0.5 rounded-full inline-block mt-1">{item.category}</p>
+                                    )}
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{new Date(item.date).toLocaleDateString('tr-TR')}</p>
+                                </div>
+                                 <div className="flex items-center gap-4 flex-shrink-0 ml-2">
+                                    <p className={`font-bold text-lg ${item.activityType === 'expense' ? 'text-red-500 dark:text-red-400' : 'text-green-500 dark:text-green-400'}`}>
+                                        {item.activityType === 'expense' ? '-' : '+'} {formatCurrency(item.amount)}
+                                    </p>
+                                    <button onClick={() => item.activityType === 'expense' ? handleDeleteTransaction(item.id) : handleDeletePayment(item.id)} className="text-gray-400 hover:text-red-500">
+                                        <TrashIcon className="w-5 h-5"/>
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    }
+                    </div>
+                    <div className="mt-8 border-t dark:border-gray-700 pt-6">
+                         <button onClick={handleDeleteCard} className="w-full flex items-center justify-center gap-2 text-red-500 dark:text-red-400 font-semibold border-2 border-red-500 dark:border-red-400 rounded-lg py-3 active:bg-red-50 dark:active:bg-red-900/50 transition-colors">
+                            <TrashIcon />
+                            Bu Kartı Sil
+                        </button>
+                    </div>
+                 </div>
+            );
+        }
+
+        function AddCashAccountScreen({ navigate }) {
+             // ... Dark mode stilleri eklendi
+            const { dispatch } = useContext(AppContext);
+            const [name, setName] = useState('');
+
+            const handleSave = () => {
+                if (!name) {
+                    alert('Lütfen bir hesap adı girin.');
+                    return;
+                }
+                const newAccount = {
+                    id: Date.now().toString(),
+                    name,
+                };
+                dispatch({ type: 'ADD_CASH_ACCOUNT', payload: newAccount });
+                navigate('Home');
+            };
+
+            return (
+                 <div className="p-4">
+                    <button onClick={() => navigate('Home')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">Yeni Nakit Hesabı Ekle</h1>
+                    <div className="space-y-4">
+                        <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Hesap Adı (örn: Cüzdanım)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <button onClick={handleSave} className="w-full bg-blue-500 text-white font-bold text-lg p-4 rounded-lg shadow-md hover:bg-blue-600 active:bg-blue-700 transition-colors">Hesabı Ekle</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function AddCardScreen({ navigate }) {
+            // ... Dark mode stilleri eklendi
+             const { dispatch } = useContext(AppContext);
+            const [name, setName] = useState('');
+            const [limit, setLimit] = useState('');
+
+            const handleSave = () => {
+                if (!name || !limit || isNaN(limit)) {
+                    alert('Lütfen tüm alanları doğru bir şekilde doldurun.');
+                    return;
+                }
+                const newCard = {
+                    id: Date.now().toString(),
+                    name,
+                    limit: parseFloat(limit),
+                    payments: [],
+                };
+                dispatch({ type: 'ADD_CARD', payload: newCard });
+                navigate('Home');
+            };
+
+            return (
+                 <div className="p-4">
+                    <button onClick={() => navigate('Home')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">Yeni Kredi Kartı Ekle</h1>
+                    <div className="space-y-4">
+                        <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Kart Adı (örn: Banka A)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <input type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Kart Limiti (örn: 10000)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <button onClick={handleSave} className="w-full bg-blue-500 text-white font-bold text-lg p-4 rounded-lg shadow-md hover:bg-blue-600 active:bg-blue-700 transition-colors">Kartı Ekle</button>
+                    </div>
+                </div>
+            );
+        }
+        
+        function AddPaymentScreen({ navigate, params }) {
+            // ... Dark mode stilleri eklendi
+            const { cardId } = params;
+            const { state, dispatch } = useContext(AppContext);
+            const card = state.cards.find(c => c.id === cardId);
+
+            const [amount, setAmount] = useState('');
+            const [description, setDescription] = useState('');
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            
+            const handleSave = () => {
+                if (!amount || isNaN(amount)) {
+                    alert('Lütfen geçerli bir tutar girin.');
+                    return;
+                }
+                const newPayment = {
+                    id: Date.now().toString(),
+                    amount: parseFloat(amount),
+                    date,
+                    paymentDescription: description || 'Kredi Kartı Ödemesi',
+                };
+                dispatch({ type: 'ADD_PAYMENT_TO_CARD', payload: { cardId, payment: newPayment } });
+                navigate('CardDetail', { cardId });
+            };
+
+            return (
+                 <div className="p-4">
+                    <button onClick={() => navigate('CardDetail', { cardId })} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-4">
+                        <ArrowLeftIcon /> Geri
+                    </button>
+                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-6">{card.name} - Ödeme</h1>
+                    <div className="space-y-4">
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Ödeme Tutarı" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Açıklama (opsiyonel)" className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full p-4 text-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-2 border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                        <button onClick={handleSave} className="w-full bg-blue-500 text-white font-bold text-lg p-4 rounded-lg shadow-md hover:bg-blue-600 active:bg-blue-700 transition-colors">Ödemeyi Kaydet</button>
+                    </div>
+                </div>
+            )
+        }
+        
+        // --- ANA UYGULAMA BİLEŞENİ VE YÖNLENDİRME ---
+        function App() {
+            const [page, setPage] = useState({ name: 'Home', params: {} });
+
+            const navigate = (name, params = {}) => {
+                setPage({ name, params });
+            };
+
+            const renderPage = () => {
+                switch (page.name) {
+                    case 'Home': return <HomeScreen navigate={navigate} />;
+                    case 'AllTransactions': return <AllTransactionsScreen navigate={navigate} />;
+                    case 'AddIncome': return <AddTransactionScreen navigate={navigate} type="income" />;
+                    case 'AddExpense': return <AddTransactionScreen navigate={navigate} type="expense" />;
+                    case 'AddCard': return <AddCardScreen navigate={navigate} />;
+                    case 'AddCashAccount': return <AddCashAccountScreen navigate={navigate} />;
+                    case 'AccountDetail': return <AccountDetailScreen navigate={navigate} params={page.params} />;
+                    case 'CardDetail': return <CardDetailScreen navigate={navigate} params={page.params} />;
+                    case 'AddPayment': return <AddPaymentScreen navigate={navigate} params={page.params} />;
+                    default: return <HomeScreen navigate={navigate} />;
+                }
+            }
+
+            return (
+                <div className="max-w-md mx-auto bg-gray-100 dark:bg-gray-900 min-h-screen">
+                    <main className="flex-grow">
+                        {renderPage()}
+                    </main>
+                    {page.name === 'Home' && (
+                         <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 p-2 flex justify-around">
+                            <button onClick={() => navigate('AddIncome')} className="bottom-nav-button flex flex-col items-center text-green-600 dark:text-green-400 p-2 rounded-lg w-1/3">
+                                <span className="text-3xl">💸</span>
+                                <span className="text-xs font-semibold mt-1">Gelir Ekle</span>
+                            </button>
+                             <button onClick={() => navigate('Home')} className="bottom-nav-button flex flex-col items-center text-blue-600 dark:text-blue-400 p-2 rounded-lg w-1/3">
+                                <HomeIcon />
+                                <span className="text-xs font-semibold mt-1">Ana Sayfa</span>
+                            </button>
+                            <button onClick={() => navigate('AddExpense')} className="bottom-nav-button flex flex-col items-center text-red-600 dark:text-red-400 p-2 rounded-lg w-1/3">
+                                <span className="text-3xl">📉</span>
+                                <span className="text-xs font-semibold mt-1">Gider Ekle</span>
+                            </button>
+                        </footer>
+                    )}
+                </div>
+            );
+        }
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(
+            <AppProvider>
+                <App />
+            </AppProvider>
+        );
+
+    </script>
+</body>
+</html>
+
